@@ -3,12 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       unsigned_b64:
-        description: "Base-64 of unsigned .shortcut"
         required: true
+        description: "Base64-encoded unsigned .shortcut"
 
 jobs:
   sign:
-    runs-on: [self-hosted, macOS]   # lands on your new runner
+    runs-on: [self-hosted, macOS]
     timeout-minutes: 5
 
     steps:
@@ -18,9 +18,9 @@ jobs:
 
       - name: Sign with Apple Shortcuts CLI
         run: |
-          shortcuts export unsigned.shortcut \
-                     --output signed.shortcut \
-                     --name "ShortcutGenie"
+          shortcuts sign --mode anyone \
+                         --input unsigned.shortcut \
+                         --output signed.shortcut
 
       - name: Return Base-64 of signed bundle
         id: out

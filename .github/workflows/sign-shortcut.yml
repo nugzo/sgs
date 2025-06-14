@@ -21,58 +21,23 @@ jobs:
     runs-on: self-hosted
     
     steps:
-    - name: Setup Environment
+    - name: Sign Shortcut (Ultra Fast)
       run: |
-        echo "🔐 Starting shortcut signing process..."
+        echo "🚀 Starting ultra-fast shortcut signing..."
         echo "📝 Shortcut name: ${{ github.event.inputs.shortcut_name }}"
         
-    - name: Decode and Create Shortcut File
-      run: |
-        # Create temp directory
+        # Create temp directory and files
         TEMP_DIR=$(mktemp -d)
         SHORTCUT_FILE="$TEMP_DIR/${{ github.event.inputs.shortcut_name }}.shortcut"
-        
-        # Decode base64 shortcut data
-        echo "${{ github.event.inputs.shortcut_data }}" | base64 -d > "$SHORTCUT_FILE"
-        
-        echo "✅ Shortcut file created: $SHORTCUT_FILE"
-        echo "📊 File size: $(stat -f%z "$SHORTCUT_FILE") bytes"
-        
-        # Export paths for next steps
-        echo "TEMP_DIR=$TEMP_DIR" >> $GITHUB_ENV
-        echo "SHORTCUT_FILE=$SHORTCUT_FILE" >> $GITHUB_ENV
-        
-    - name: Validate Shortcut Format
-      run: |
-        echo "🔍 Validating shortcut format..."
-        
-        # Check if file is readable plist
-        if plutil -lint "$SHORTCUT_FILE" > /dev/null 2>&1; then
-          echo "✅ Valid plist format"
-        else
-          echo "❌ Invalid plist format"
-          exit 1
-        fi
-        
-        # Check for required keys
-        if plutil -extract WFWorkflowName raw "$SHORTCUT_FILE" > /dev/null 2>&1; then
-          WORKFLOW_NAME=$(plutil -extract WFWorkflowName raw "$SHORTCUT_FILE")
-          echo "✅ Workflow name: $WORKFLOW_NAME"
-        else
-          echo "❌ Missing WFWorkflowName"
-          exit 1
-        fi
-        
-    - name: Sign Shortcut with shortcuts CLI
-      run: |
-        echo "🔐 Signing shortcut with macOS shortcuts CLI..."
-        
         SIGNED_FILE="$TEMP_DIR/${{ github.event.inputs.shortcut_name }}_signed.shortcut"
         
-        # Sign the shortcut
-        if shortcuts sign --mode anyone --input "$SHORTCUT_FILE" --output "$SIGNED_FILE"; then
-          echo "✅ Shortcut signed successfully"
-          echo "📊 Signed file size: $(stat -f%z "$SIGNED_FILE") bytes"
+        # Decode and validate in one command
+        echo "${{ github.event.inputs.shortcut_data }}" | base64 -d > "$SHORTCUT_FILE"
+        
+        # Quick validation and signing
+        if plutil -lint "$SHORTCUT_FILE" > /dev/null 2>&1 && \
+           shortcuts sign --mode anyone --input "$SHORTCUT_FILE" --output "$SIGNED_FILE"; then
+          echo "✅ Shortcut signed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
           echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
         else
           echo "❌ Shortcut signing failed"
@@ -86,26 +51,14 @@ jobs:
         path: ${{ env.SIGNED_FILE }}
         retention-days: 1
         
-    - name: Create Download URL
+    - name: Notify Completion
+      if: github.event.inputs.callback_url != ''
       run: |
-        echo "📋 Signed shortcut available as artifact"
-        echo "🔗 Download URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        
-        # If callback URL provided, notify completion
-        if [ -n "${{ github.event.inputs.callback_url }}" ]; then
-          echo "📞 Sending completion notification..."
-          curl -X POST "${{ github.event.inputs.callback_url }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"status\": \"success\",
-              \"run_id\": \"${{ github.run_id }}\",
-              \"shortcut_name\": \"${{ github.event.inputs.shortcut_name }}\",
-              \"download_url\": \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
-            }"
-        fi
-        
-    - name: Cleanup
-      if: always()
-      run: |
-        echo "🧹 Cleaning up temporary files..."
-        rm -rf "$TEMP_DIR" 
+        curl -X POST "${{ github.event.inputs.callback_url }}" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"status\": \"success\",
+            \"run_id\": \"${{ github.run_id }}\",
+            \"shortcut_name\": \"${{ github.event.inputs.shortcut_name }}\",
+            \"download_url\": \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+          }" 

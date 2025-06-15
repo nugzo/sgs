@@ -18,7 +18,7 @@ on:
 
 jobs:
   sign-shortcut:
-    runs-on: self-hosted
+    runs-on: macos-latest
     
     steps:
     - name: Sign Shortcut (Ultra Fast)

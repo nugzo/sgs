@@ -76,6 +76,7 @@ jobs:
               echo "✅ Shortcut signed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
               echo "🔍 Final file: $(basename "$SIGNED_FILE")"
               echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
+              echo "SIGNED_FILE_NAME=$(basename "$SIGNED_FILE")" >> $GITHUB_ENV
             else
               echo "❌ Could not find signed shortcut file in $TEMP_DIR"
               echo "📁 Directory contents:"
@@ -97,15 +98,7 @@ jobs:
         name: signed-shortcut-${{ github.run_id }}
         path: ${{ env.SIGNED_FILE }}
         retention-days: 1
+      if: env.SIGNED_FILE != ''
         
-    - name: Notify Completion
-      if: github.event.inputs.callback_url != ''
-      run: |
-        curl -X POST "${{ github.event.inputs.callback_url }}" \
-          -H "Content-Type: application/json" \
-          -d "{
-            \"status\": \"success\",
-            \"run_id\": \"${{ github.run_id }}\",
-            \"shortcut_name\": \"${{ github.event.inputs.shortcut_name }}\",
-            \"download_url\": \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
-          }" 
+    # 🔧 NOTIFICATION REMOVED: iOS app uses polling approach instead of callback
+    # The timing fixes in GitHubActionsSigner.swift handle artifact retrieval reliably

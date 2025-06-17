@@ -30,37 +30,64 @@ jobs:
         SANITIZED_NAME=$(echo "${{ github.event.inputs.shortcut_name }}" | sed 's/[^a-zA-Z0-9 ._-]//g' | sed 's/  */ /g' | xargs)
         echo "🧹 Sanitized filename: $SANITIZED_NAME"
         
-        # Create temp directory and files
+        # 🔧 CRITICAL FIX: Clean workspace to prevent cache contamination
+        echo "🗑️ Cleaning workspace to prevent cache issues..."
+        rm -rf ~/actions-runner/_work/sgs/sgs/*.shortcut ~/actions-runner/_work/sgs/sgs/*.plist 2>/dev/null || true
+        
+        # Create isolated temp directory
         TEMP_DIR=$(mktemp -d)
-        SHORTCUT_FILE="$TEMP_DIR/temp_shortcut.shortcut"
+        SHORTCUT_FILE="$TEMP_DIR/input.shortcut"
         SIGNED_FILE="$TEMP_DIR/${SANITIZED_NAME}.shortcut"
         
-        # Decode and validate in one command
+        echo "🔍 Working in isolated directory: $TEMP_DIR"
+        
+        # Decode and validate shortcut data
         echo "${{ github.event.inputs.shortcut_data }}" | base64 -d > "$SHORTCUT_FILE"
         
-        # ✅ FIXED: Sign to temp location, then force rename to correct name
-        # The shortcuts CLI ignores --output filename and uses internal shortcut name
-        TEMP_SIGNED="$TEMP_DIR/temp_signed.shortcut"
+        # 🔍 VALIDATION: Check shortcut content matches request
+        echo "🔍 Validating shortcut content..."
+        if command -v plutil >/dev/null 2>&1; then
+          SHORTCUT_NAME_IN_PLIST=$(plutil -extract WFWorkflowName raw "$SHORTCUT_FILE" 2>/dev/null || echo "Unknown")
+          echo "📋 Shortcut name in plist: '$SHORTCUT_NAME_IN_PLIST'"
+          echo "📋 Expected name pattern: '${{ github.event.inputs.shortcut_name }}'"
+        fi
         
-        if plutil -lint "$SHORTCUT_FILE" > /dev/null 2>&1 && \
-           shortcuts sign --mode anyone --input "$SHORTCUT_FILE" --output "$TEMP_SIGNED"; then
+        # Sign the shortcut
+        if plutil -lint "$SHORTCUT_FILE" > /dev/null 2>&1; then
+          echo "✅ Shortcut plist is valid"
+          echo "🔐 Signing shortcut..."
           
-          # Find the actual signed file (shortcuts CLI creates its own name)
-          ACTUAL_SIGNED=$(find "$TEMP_DIR" -name "*.shortcut" -not -name "temp_shortcut.shortcut" | head -n 1)
+          # Clear temp directory of any existing signed files
+          find "$TEMP_DIR" -name "*.shortcut" -not -name "input.shortcut" -delete 2>/dev/null || true
           
-          if [ -f "$ACTUAL_SIGNED" ]; then
-            # Force rename to the correct filename
-            mv "$ACTUAL_SIGNED" "$SIGNED_FILE"
-            echo "✅ Shortcut signed and renamed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
-            echo "🔍 Final filename: $(basename "$SIGNED_FILE")"
-            echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
+          if shortcuts sign --mode anyone --input "$SHORTCUT_FILE" --output "$TEMP_DIR/signed.shortcut"; then
+            echo "✅ Shortcut signing command completed"
+            
+            # Find the actual signed file (shortcuts CLI might create different name)
+            ACTUAL_SIGNED=$(find "$TEMP_DIR" -name "*.shortcut" -not -name "input.shortcut" | head -n 1)
+            
+            if [ -f "$ACTUAL_SIGNED" ]; then
+              # Ensure proper filename for download
+              if [ "$ACTUAL_SIGNED" != "$SIGNED_FILE" ]; then
+                mv "$ACTUAL_SIGNED" "$SIGNED_FILE"
+                echo "📝 Renamed to: $(basename "$SIGNED_FILE")"
+              fi
+              
+              echo "✅ Shortcut signed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
+              echo "🔍 Final file: $(basename "$SIGNED_FILE")"
+              echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
+            else
+              echo "❌ Could not find signed shortcut file in $TEMP_DIR"
+              echo "📁 Directory contents:"
+              ls -la "$TEMP_DIR"
+              exit 1
+            fi
           else
-            echo "❌ Could not find signed shortcut file"
-            ls -la "$TEMP_DIR"
+            echo "❌ Shortcut signing command failed"
             exit 1
           fi
         else
-          echo "❌ Shortcut signing failed"
+          echo "❌ Invalid shortcut plist format"
           exit 1
         fi
         

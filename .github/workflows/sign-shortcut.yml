@@ -26,10 +26,14 @@ jobs:
         echo "🚀 Starting ultra-fast shortcut signing..."
         echo "📝 Shortcut name: ${{ github.event.inputs.shortcut_name }}"
         
+        # Sanitize shortcut name for filename (remove emojis and special chars)
+        SANITIZED_NAME=$(echo "${{ github.event.inputs.shortcut_name }}" | sed 's/[^a-zA-Z0-9 ._-]//g' | sed 's/  */ /g' | xargs)
+        echo "🧹 Sanitized filename: $SANITIZED_NAME"
+        
         # Create temp directory and files
         TEMP_DIR=$(mktemp -d)
-        SHORTCUT_FILE="$TEMP_DIR/${{ github.event.inputs.shortcut_name }}.shortcut"
-        SIGNED_FILE="$TEMP_DIR/${{ github.event.inputs.shortcut_name }}_signed.shortcut"
+        SHORTCUT_FILE="$TEMP_DIR/temp_shortcut.shortcut"
+        SIGNED_FILE="$TEMP_DIR/${SANITIZED_NAME}.shortcut"
         
         # Decode and validate in one command
         echo "${{ github.event.inputs.shortcut_data }}" | base64 -d > "$SHORTCUT_FILE"

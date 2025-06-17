@@ -38,11 +38,27 @@ jobs:
         # Decode and validate in one command
         echo "${{ github.event.inputs.shortcut_data }}" | base64 -d > "$SHORTCUT_FILE"
         
-        # Quick validation and signing
+        # ✅ FIXED: Sign to temp location, then force rename to correct name
+        # The shortcuts CLI ignores --output filename and uses internal shortcut name
+        TEMP_SIGNED="$TEMP_DIR/temp_signed.shortcut"
+        
         if plutil -lint "$SHORTCUT_FILE" > /dev/null 2>&1 && \
-           shortcuts sign --mode anyone --input "$SHORTCUT_FILE" --output "$SIGNED_FILE"; then
-          echo "✅ Shortcut signed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
-          echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
+           shortcuts sign --mode anyone --input "$SHORTCUT_FILE" --output "$TEMP_SIGNED"; then
+          
+          # Find the actual signed file (shortcuts CLI creates its own name)
+          ACTUAL_SIGNED=$(find "$TEMP_DIR" -name "*.shortcut" -not -name "temp_shortcut.shortcut" | head -n 1)
+          
+          if [ -f "$ACTUAL_SIGNED" ]; then
+            # Force rename to the correct filename
+            mv "$ACTUAL_SIGNED" "$SIGNED_FILE"
+            echo "✅ Shortcut signed and renamed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
+            echo "🔍 Final filename: $(basename "$SIGNED_FILE")"
+            echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
+          else
+            echo "❌ Could not find signed shortcut file"
+            ls -la "$TEMP_DIR"
+            exit 1
+          fi
         else
           echo "❌ Shortcut signing failed"
           exit 1

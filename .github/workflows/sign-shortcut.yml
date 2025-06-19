@@ -11,6 +11,10 @@ on:
         description: 'Name of the shortcut'
         required: true
         type: string
+      request_id:
+        description: 'Unique request identifier for concurrency safety'
+        required: true
+        type: string
       callback_url:
         description: 'Optional callback URL for completion notification'
         required: false
@@ -21,25 +25,24 @@ jobs:
     runs-on: self-hosted
     
     steps:
-    - name: Sign Shortcut (Ultra Fast)
+    - name: Sign Shortcut (Concurrency Safe)
       run: |
-        echo "🚀 Starting ultra-fast shortcut signing..."
+        echo "🚀 Starting concurrency-safe shortcut signing..."
         echo "📝 Shortcut name: ${{ github.event.inputs.shortcut_name }}"
+        echo "🆔 Request ID: ${{ github.event.inputs.request_id }}"
         
         # Sanitize shortcut name for filename (remove emojis and special chars)
         SANITIZED_NAME=$(echo "${{ github.event.inputs.shortcut_name }}" | sed 's/[^a-zA-Z0-9 ._-]//g' | sed 's/  */ /g' | xargs)
         echo "🧹 Sanitized filename: $SANITIZED_NAME"
         
-        # 🔧 CRITICAL FIX: Clean workspace to prevent cache contamination
-        echo "🗑️ Cleaning workspace to prevent cache issues..."
-        rm -rf ~/actions-runner/_work/sgs/sgs/*.shortcut ~/actions-runner/_work/sgs/sgs/*.plist 2>/dev/null || true
-        
-        # Create isolated temp directory
-        TEMP_DIR=$(mktemp -d)
+        # 🔧 FIX #1: Create request-specific temp directory to prevent collisions
+        REQUEST_ID="${{ github.event.inputs.request_id }}"
+        TEMP_DIR=$(mktemp -d -t "shortcut-${REQUEST_ID}-XXXXXX")
         SHORTCUT_FILE="$TEMP_DIR/input.shortcut"
         SIGNED_FILE="$TEMP_DIR/${SANITIZED_NAME}.shortcut"
         
-        echo "🔍 Working in isolated directory: $TEMP_DIR"
+        echo "🔍 Working in request-specific directory: $TEMP_DIR"
+        echo "🔍 Request ID: $REQUEST_ID"
         
         # Decode and validate shortcut data
         echo "${{ github.event.inputs.shortcut_data }}" | base64 -d > "$SHORTCUT_FILE"
@@ -75,8 +78,10 @@ jobs:
               
               echo "✅ Shortcut signed successfully ($(stat -f%z "$SIGNED_FILE") bytes)"
               echo "🔍 Final file: $(basename "$SIGNED_FILE")"
+              echo "🔍 Request ID: $REQUEST_ID"
               echo "SIGNED_FILE=$SIGNED_FILE" >> $GITHUB_ENV
               echo "SIGNED_FILE_NAME=$(basename "$SIGNED_FILE")" >> $GITHUB_ENV
+              echo "REQUEST_ID=$REQUEST_ID" >> $GITHUB_ENV
             else
               echo "❌ Could not find signed shortcut file in $TEMP_DIR"
               echo "📁 Directory contents:"
@@ -92,13 +97,13 @@ jobs:
           exit 1
         fi
         
-    - name: Upload Signed Shortcut
+    - name: Upload Signed Shortcut (Request-Specific)
       uses: actions/upload-artifact@v4
       with:
-        name: signed-shortcut-${{ github.run_id }}
+        name: signed-shortcut-${{ env.REQUEST_ID }}-${{ github.run_id }}
         path: ${{ env.SIGNED_FILE }}
         retention-days: 1
       if: env.SIGNED_FILE != ''
         
-    # 🔧 NOTIFICATION REMOVED: iOS app uses polling approach instead of callback
-    # The timing fixes in GitHubActionsSigner.swift handle artifact retrieval reliably
+    # 🔧 CONCURRENCY SAFETY: Each request gets unique artifact name with request_id
+    # This prevents wrong shortcut assignment in concurrent scenarios
